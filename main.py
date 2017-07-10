@@ -4,7 +4,7 @@ import cgi
 
 app = Flask(__name__)
 app.config['DEBUG'] = True      # displays runtime errors in the browser, too
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flicklist:MyNewPass@localhost:8889/flicklist'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://flicklist:password@localhost:8889/flicklist'
 app.config['SQLALCHEMY_ECHO'] = True
 
 db = SQLAlchemy(app)
@@ -13,7 +13,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True)
     password = db.Column(db.String(120))
-       
+
     def __init__(self, email, password):
         self.email = email
         self.password = password
@@ -58,16 +58,26 @@ def register():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
+        verify = request.form['verify']
+        current_accounts = User.query.filter_by(email=email).first()
+
         if not is_email(email):
             flash('zoiks! "' + email + '" does not seem like an email address')
             return redirect('/register')
-        # TODO 1: validate that form value of 'verify' matches password
-        # TODO 2: validate that there is no user with that email already
-        user = User(email=email, password=password)
-        db.session.add(user)
-        db.session.commit()
-        session['user'] = user.email
-        return redirect("/")
+
+        if password != verify:
+            flash('Your passwords did not match')
+            return redirect('/register')
+
+        if not current_accounts:
+            user = User(email=email, password=password)
+            db.session.add(user)
+            db.session.commit()
+            session['user'] = user.email
+            return redirect("/")
+        else:
+            flash('This email has already been registered')
+            return redirect('register')
     else:
         return render_template('register.html')
 
@@ -83,6 +93,24 @@ def is_email(string):
         domain_dot_index = string.find('.', atsign_index)
         domain_dot_present = domain_dot_index >= 0
         return domain_dot_present
+
+@app.route("/login", methods=['POST', 'GET'])
+def login():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        user = User.query.filter_by(email=email).first()
+        if user and user.password == password:
+            session['user'] = user.email
+            flash('Welcome back, '+email)
+            return redirect('/')
+
+        else:
+            flash('Your email or password is incorrect')
+            return render_template('login.html')
+
+    return render_template('login.html')
+
 
 @app.route("/logout", methods=['POST'])
 def logout():
@@ -160,7 +188,8 @@ def index():
 #         It should contain 'register' and 'login'.
 @app.before_request
 def require_login():
-    if not ('user' in session or request.endpoint == 'register'):
+    allowed_routes = ['login','register']
+    if not ('user' in session or request.endpoint in allowed_routes):
         return redirect("/register")
 
 # In a real application, this should be kept secret (i.e. not on github)
